@@ -1,0 +1,87 @@
+# Enterprise Context Platform - Local infrastructure
+# Usage: docker compose up -d
+# Then run scripts/seed_*.sh (or seed_all.sh)
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ecp-postgres
+    environment:
+      POSTGRES_USER: ecp
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: ecp_registry
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sh:/docker-entrypoint-initdb.d/01_init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecp -d ecp_registry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: ecp-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/changeme
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  cube:
+    image: cubejs/cube:latest
+    container_name: ecp-cube
+    environment:
+      CUBEJS_DB_TYPE: postgres
+      CUBEJS_DB_HOST: postgres
+      CUBEJS_DB_PORT: 5432
+      CUBEJS_DB_NAME: ecp_dw
+      CUBEJS_DB_USER: ecp
+      CUBEJS_DB_PASS: changeme
+      CUBEJS_API_SECRET: ecp_dev_secret
+      CUBEJS_DEV_MODE: "true"
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./cube/schema:/cube/conf/schema
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:4000/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  opa:
+    image: openpolicyagent/opa:0.62.0
+    container_name: ecp-opa
+    command:
+      - "run"
+      - "--server"
+      - "--log-level=info"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policies:/policies:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  postgres_data:
+  neo4j_data:

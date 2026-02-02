@@ -1,0 +1,250 @@
+openapi: 3.0.3
+info:
+  title: Enterprise Context Platform API
+  description: Semantic resolution and execution API for agentic data access.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local
+  - url: /api/v1
+    description: Relative (behind gateway)
+
+paths:
+  /resolve:
+    post:
+      operationId: resolve
+      summary: Resolve a business concept to canonical definition and execution plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveRequest'
+      responses:
+        '200':
+          description: Resolution result with execution plan and provenance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /execute:
+    post:
+      operationId: execute
+      summary: Execute a previously resolved metric query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Query results with full provenance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Resolution ID not found or expired
+
+  /glossary:
+    get:
+      operationId: queryGlossary
+      summary: Search the business glossary for term definitions
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: domain
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching glossary terms
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlossaryResponse'
+    post:
+      operationId: searchGlossary
+      summary: Semantic search over glossary (body)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query: { type: string }
+                domain: { type: string }
+                limit: { type: integer, default: 10 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlossaryResponse'
+
+  /lineage:
+    get:
+      operationId: getLineage
+      summary: Get data lineage for a metric or table
+      parameters:
+        - name: target
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Metric ID or table name
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 3
+      responses:
+        '200':
+          description: Lineage graph (nodes and edges)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageResponse'
+
+  /metrics:
+    get:
+      operationId: listAvailableMetrics
+      summary: List metrics available for dimension or domain
+      parameters:
+        - name: dimension
+          in: query
+          schema:
+            type: string
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: certification_tier
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsListResponse'
+
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  stores:
+                    type: object
+                    additionalProperties: { type: string }
+
+components:
+  schemas:
+    ResolveRequest:
+      type: object
+      required: [concept]
+      properties:
+        concept:
+          type: string
+          description: Business concept to resolve (e.g. "APAC revenue")
+        user_context:
+          type: object
+          properties:
+            user_id: { type: string }
+            department: { type: string }
+            role: { type: string }
+            allowed_regions: { type: array, items: { type: string } }
+
+    ResolveResponse:
+      type: object
+      properties:
+        resolution_id: { type: string }
+        status: { type: string }
+        execution_plan: { type: object }
+        resolved_concepts: { type: object }
+        confidence_score: { type: number }
+        provenance: { type: object }
+        warnings: { type: array, items: { type: object } }
+
+    ExecuteRequest:
+      type: object
+      required: [resolution_id]
+      properties:
+        resolution_id: { type: string }
+        parameters: { type: object }
+
+    ExecuteResponse:
+      type: object
+      properties:
+        results: { type: object }
+        provenance: { type: object }
+        confidence_score: { type: number }
+        warnings: { type: array, items: { type: object } }
+
+    GlossaryResponse:
+      type: object
+      properties:
+        terms: { type: array, items: { $ref: '#/components/schemas/GlossaryTerm' } }
+        total: { type: integer }
+
+    GlossaryTerm:
+      type: object
+      properties:
+        id: { type: string }
+        canonical_name: { type: string }
+        definition: { type: string }
+        domain: { type: string }
+
+    LineageResponse:
+      type: object
+      properties:
+        target: { type: string }
+        nodes: { type: array }
+        edges: { type: array }
+
+    MetricsListResponse:
+      type: object
+      properties:
+        metrics: { type: array, items: { type: object } }
+        total: { type: integer }
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }
+    Unauthorized:
+      description: Missing or invalid auth
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }
